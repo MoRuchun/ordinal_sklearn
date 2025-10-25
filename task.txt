@@ -1,0 +1,113 @@
+You are a professional software engineer specializing in writing Python code for academic research.
+Your goal is to produce clear, accurate, and fully reproducible research-oriented demo code, rather than production-level software.
+The code does not need to include error handling or input checking (e.g., raise error), but the algorithmic logic must be strictly correct.
+You are free to use any commonly available third-party libraries (such as numpy, scikit-learn, torch, gpytorch, matplotlib, scipy, etc.) to improve implementation convenience.
+Approximate or placeholder implementations are strictly prohibited.
+ 
+1. Task Objective
+Implement an Ordinal Regression framework in the style of the scikit-learn API that supports three model structures:
+1.	Cumulative Model
+2.	Sequential Model
+3.	Adjacent Category Model
+The Sequential Model must support category-specific effects, i.e., assigning distinct latent regressors for each of the (K-1) binary sub-tasks.
+All three models must inherit from a common abstract base class with a unified interface.
+This base class must be able to accept any scikit-learn-compatible regressor (e.g., SVM, GPR, Random Forest, etc.) as a latent function predictor, which performs the ordinal regression task.
+ 
+2. Class Structure Requirements
+The abstract base class should contain the following key components:
+1.	Initialization function (__init__) — accepts the base regressor, the number of classes (K), and other necessary hyperparameters.
+2.	fit method — learns the latent function and the threshold parameters ((\tau_j) or equivalent) from the training data ({x_i, y_i}).
+3.	predict_proba method — outputs the probability distribution over all ordinal categories for each sample.
+4.	predict method — outputs the predicted class label, either by the maximum probability or threshold rule.
+5.	Internal utility functions — handle the mapping between latent variables (z) and thresholds (\tau).
+6.	The link function must be configurable as either probit or logit, with probit as default.
+ 
+3. Likelihood Modeling and Numerical Stability Constraints
+(1) Cumulative Model
+Use the cumulative link formulation.
+Let (f(\mathbf{x})) denote the latent function, with strictly increasing thresholds (\tau_1 < \cdots < \tau_{K-1}).
+The error distribution determines the link function (F \in {\text{logistic}, \text{probit}}).
+Enforce monotonicity through reparameterization:
+[
+\tau_1 = \alpha_1, \quad \tau_j = \tau_{j-1} + \exp(\delta_j) \ (j \ge 2)
+]
+Define the cumulative probability:
+[
+P(Y \le k \mid \mathbf{x}) = F(\tau_k - f(\mathbf{x}))
+]
+Then, the probability for class (k) is:
+[
+P(Y=k \mid \mathbf{x}) = F(\tau_k - f(\mathbf{x})) - F(\tau_{k-1} - f(\mathbf{x}))
+]
+In the binary case ((K=2)), this must naturally reduce to standard logistic or probit regression.
+ 
+(2) Sequential Model
+Define the conditional probability:
+[
+q_k(\mathbf{x}) = P(Y > k \mid Y > k-1, \mathbf{x})
+]
+Each binary submodel is trained only on samples satisfying (Y > k-1).
+The full probability is composed as:
+[
+P(Y=k \mid \mathbf{x}) = \prod_{m=1}^{k-1} q_m(\mathbf{x}) - \prod_{m=1}^{k} q_m(\mathbf{x})
+]
+If category-specific latent functions (f_k(\mathbf{x})) are used, each submodel is trained independently;
+if a shared latent function is used, ensure consistent thresholds and normalization.
+ 
+(3) Adjacent Category Model
+Define the conditional probability between adjacent categories:
+[
+P(Y=k \mid Y\in{k,k+1}) = F(\tau_k - f(\mathbf{x}))
+]
+The unconditional probability must be normalized such that:
+[
+\sum_k P(Y=k \mid \mathbf{x}) = 1, \quad P(Y=k\mid \mathbf{x}) \ge 0
+]
+Normalization should be performed in the log domain using logsumexp to ensure numerical stability.
+ 
+4. Optimization Strategy (Inspired by OGBoost)
+To handle non-differentiable base regressors (e.g., Random Forests),
+all models must employ a coordinate descent optimization scheme, alternately updating the latent function (f(\mathbf{x})) and thresholds (\tau).
+Step 1: Latent Function Update (f-step)
+•	Compute pseudo-residuals as the gradient of the log-likelihood with respect to (f(\mathbf{x}));
+•	Fit these pseudo-residuals using the chosen base regressor;
+•	This is equivalent to functional gradient boosting, requiring no differentiability of the base model.
+Step 2: Threshold Update (τ-step)
+•	With (f(\mathbf{x})) fixed, compute the gradient of the log-likelihood with respect to each (\tau_j);
+•	Update thresholds using monotonicity-constrained line search, ensuring (\tau_1 < \tau_2 < \cdots < \tau_{K-1});
+•	Use adaptive step-size control (e.g., “doubling–halving” rule) to ensure likelihood descent.
+Step 3: Termination
+•	Stop training when the negative log-likelihood (NLL) converges or reaches the maximum iteration count.
+•	When using Gaussian Process latent functions, approximate the posterior with Laplace approximation or Expectation Propagation (EP), and optimize hyperparameters via approximate marginal likelihood.
+This optimization paradigm mirrors OGBoost’s coordinate descent approach, ensuring stable training and compatibility with any scikit-learn-style regressor, regardless of differentiability.
+ 
+5. Auxiliary Functional Modules
+Implement the following as independent functions:
+1.	Data Loading and Storage
+Load datasets from .xlsx files and split into training, validation, and test sets.
+Return standardized numerical matrices.
+2.	Model Evaluation Function
+Compute and print the following metrics:
+Accuracy, Quadratic Weighted Kappa, Brier Score, Negative Log-Likelihood (NLL), and Macro-F1.
+Display results in a formatted table and sort models by test performance.
+Provide an optional flag to plot a normalized confusion matrix heatmap.
+3.	Fragility Curve Plotting Function
+For a trained model, plot fragility curves, with the horizontal axis being the input variable (e.g., IM intensity)
+and the vertical axis showing (P(Y \ge DS_k \mid IM)) or (P(Y = DS_k \mid IM)).
+Ensure monotonicity and stability in extrapolation regions.
+4.	Hyperparameter Search Function
+Accept a model instance and a hyperparameter dictionary, perform grid search or Bayesian optimization,
+and return the best parameter set with corresponding performance metrics.
+ 
+6. Implementation Conventions
+•	All model classes must implement fit, predict, predict_proba, and score methods.
+•	Each class and function must contain detailed docstrings describing arguments and return values.
+•	Assume the input data are standardized numeric matrices (no missing values or text).
+•	The implementation should be modular, logically organized, and reproducible.
+•	The result must not approximate ordinal regression as nominal classification or standard regression.
+•	Use numerically stable functions such as scipy.special.logit, scipy.stats.norm.cdf, scipy.special.expit, and scipy.special.logsumexp.
+ 
+7. Output Requirement
+The final output should be a complete Python code file, containing all model classes and utility modules.
+The code must be logically rigorous, modular, extensively commented, and strictly follow the scikit-learn API style.
+
